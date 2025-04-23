@@ -1,0 +1,28 @@
+[project]
+name = "brixel"
+version = "0.1.0"
+description = "A Python SDK to generate and execute plans using the Brixel API"
+authors = [{ name="Justin Grivon", email="justin@brixel.ai" }]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "requests>=2.25.1"
+]
+
+[project.urls]
+Homepage = "https://github.com/brixel-ai/brixel-client"
+Repository = "https://github.com/brixel-ai/brixel-client"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest>=8.0.0",
+    "requests-mock>=1.11.0"
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
