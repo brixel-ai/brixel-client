@@ -25,11 +25,32 @@ pip install brixel
 
 ---
 
+## 🏁 Get Started
+
+To use the Brixel SDK, you'll need a **free** Brixel account and an API key.
+
+1. Go to [**https://console.brixel.ai**](https://console.brixel.ai)
+2. Create an account (or log in)
+3. Navigate to the **API Keys** section
+4. **Generate new API Key** to generate your personal API token
+
+```python
+from brixel.client import BrixelClient
+
+client = BrixelClient(api_key="your_api_key_here")
+```
+
+> 💡 You can also define the key using the environment variable `BRIXEL_API_KEY`  
+> The client will automatically use it if `api_key` is not explicitly passed.
+
+---
+
 ## 🚀 Quickstart
 
 ### 1. Define Tasks with `@task`
 
 ```python
+from pathlib import Path
 from brixel.decorators import task
 from PIL import Image
 import base64
@@ -67,6 +88,26 @@ def resize_image(image_b64: str, width: int, height: int) -> str:
     buffered = BytesIO()
     resized.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
+
+@task(agent_id="image")
+def save_image_to_file(image_b64: str, filename: str, path: str = None) -> str:
+    """Save a base64-encoded image to a file.
+
+    Args:
+        image_b64 (str): The base64-encoded image string.
+        filename (str): The name of the file to save (e.g., 'output.png').
+        path (str, optional): Directory to save the file in. Defaults to current directory.
+
+    Returns:
+        str: Full path of the saved file.
+    """
+    if not path:
+        path = "."
+    full_path = Path(path) / filename
+    image_data = base64.b64decode(image_b64)
+    full_path.write_bytes(image_data)
+    return str(full_path.resolve())
+
 ```
 > 💡 **Tip**  
 > Use [Google-style](https://sphinxcontrib-napoleon.readthedocs.io/en/latest/example_google.html) docstrings for your task functions to improve automatic metadata extraction (descriptions, types, etc.).
@@ -96,7 +137,7 @@ client = BrixelClient(api_key="your_api_key")
 
 files = ["https://cdn.brixel.ai/logo/brixel_logo_full.png"]
 plan = client.generate_plan(
-    message="Can you resize this picture in 120x38 px ?",
+    message="Can you resize this picture in 120x38 px and save it as brixel_resized.png?",
     files=files
 
 )
@@ -120,11 +161,13 @@ To reference **agents already configured in a specific module on Brixel**, provi
 
 ```python
 plan = client.generate_plan(
-    message="Take this image, resize it and upload it to the cloud.",
+    message="Take this image, resize it and upload it on Google drive",
     module_id="d8f575aa-731c-4842-93e9-614a0e31b360",
-    files=["https://cdn.brixel.ai/logo/brixel_logo_full.png"]
+    files=files
 )
 ```
+> 💡 **Tip**  
+> The module must be an **API** module
 
 Brixel will generate a plan based on your local agents **PLUS** module agents
 
@@ -147,8 +190,11 @@ This enables you to:
 ## 🧩 Agents & Tasks Explorer
 
 ```python
-client.describe_registered_agents(full=True)
-client.describe_registered_tasks()
+# print the full agents and tasks structured sent to brixel when generating a plan
+print(client.describe_registered_agents(full=True))
+
+# print the tasks registered
+print(client.describe_registered_tasks())
 ```
 
 ---
@@ -174,7 +220,7 @@ client = BrixelClient(
 files = ["https://cdn.brixel.ai/logo/brixel_logo_full.png"]
 
 plan = client.generate_plan(
-    message="Can you resize this picture in 120x38 px ?",
+    message="Can you resize this picture in 120x38 px and save it as brixel_resized.png?",
     files=files
 )
 
@@ -186,13 +232,13 @@ for event in event_log:
 
 ```
 
-Or in async mode with a queue
+Or in async mode with a queue and **AsyncBrixelClient**
 
 ```python
 import asyncio
 import example_decorated_image_tasks
 import example_decorated_agents
-from brixel.client import BrixelClient
+from brixel.async_client import AsyncBrixelClient
 from brixel.events import ApiEventName
 
 
@@ -206,16 +252,16 @@ async def consume_queue(queue):
 async def main():
     queue = asyncio.Queue(maxsize=100)
 
-    client = BrixelClient(api_key="your_api_key", message_broker=queue)
+    client = AsyncBrixelClient(api_key="your_api_key", message_broker=queue)
     consumer_task = asyncio.create_task(consume_queue(queue))
 
     files = ["https://cdn.brixel.ai/logo/brixel_logo_full.png"]
-    plan = client.generate_plan(
-        message="Can you resize this picture in 120x38 px ?",
+    plan = await client.generate_plan(
+        message="Can you resize this picture in 120x38 px and save it as brixel_resized.png?",
         files=files
     )
 
-    client.execute_plan(plan, files)
+    await client.execute_plan(plan, files)
 
     await consumer_task
 
@@ -231,7 +277,47 @@ supports:
 
 ---
 
+## 🧭 Visualizing Execution Plans
+
+Brixel provides a built-in utility to **render and inspect execution plans as flowcharts**.  
+This can help you debug and understand how your tasks are connected.
+
+### 🖼️ Display a Plan
+
+You can visualize a plan using the `display_plan` function:
+
+```python
+from brixel.visualization import display_plan
+
+plan = client.generate_plan(
+    message="Resize the image and send it to Slack",
+    files=["https://cdn.brixel.ai/logo/brixel_logo_full.png"],
+    module_id="8349egzb-e092-4862-b374-332832daa957"
+)
+
+display_plan(plan, filename="my_plan_graph.png")
+```
+
+
+### 📦 Optional dependencies
+
+To use this feature, you need to install extra packages:
+
+```bash
+pip install brixel[viz]
+```
+
+This will install:
+
+- `graphviz` (binary required for rendering)
+- `pydot`
+- `matplotlib`
+
+> ⚠️ Make sure the `dot` executable from Graphviz is available in your system PATH.
+```bash
+sudo apt install graphviz
+```
+
 ## 📘 License
 
-Apache 2 License — Made with ❤️ by [Brixel](https://brixel.ai)
-```
+Apache 2 License — [Brixel](https://brixel.ai)

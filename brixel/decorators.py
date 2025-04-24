@@ -1,6 +1,6 @@
 import inspect
 import warnings
-from typing import Callable, Dict, List, Any, get_type_hints, get_origin
+from typing import Callable, Dict, List, Any, get_type_hints
 from .docstring_parser import parse_docstring
 
 REGISTERED_TASKS: List[Callable] = []
@@ -13,18 +13,17 @@ def task(_func=None, *, agent_id: str = None):
         return fn
 
     if _func is None:
-        return decorator  # utilisé comme @task(...)
+        return decorator  # used as @task(...)
     else:
-        return decorator(_func)  # utilisé comme @task
+        return decorator(_func)  # used as @task
 
 
 def agent(id: str):
     def wrapper(cls):
-        # On attend que la classe ait bien les bons attributs
         REGISTERED_AGENTS[id] = {
             "id": id,
             "name": getattr(cls, "name", id),
-            "description": getattr(cls, "description", "No description provided.")
+            "description": getattr(cls, "description", "")
         }
         return cls
     return wrapper
@@ -70,7 +69,6 @@ def get_registered_tasks() -> Dict[str, List[Dict[str, Any]]]:
                 "required": param.default is inspect.Parameter.empty
             })
 
-        # Gestion du type de retour
         return_hint = hints.get("return", None)
         return_info = parsed_doc.get("return", {})
 
