@@ -1,10 +1,13 @@
 import re
 
+
 def parse_docstring(docstring: str):
     """
-    Parse une docstring au format Google / NumPy.
-    Retourne un dict : { 'description': str, 'args': {name: {'type':..., 'desc':...}}, 'return': {type, desc} }
+    Parses a docstring written in Google or NumPy style.
+    Returns a dictionary in the format:
+        { 'description': str, 'args': {name: {'type': ..., 'desc': ...}}, 'return': {'type': ..., 'desc': ...} }
     """
+
     parsed = {
         "description": "",
         "args": {},
@@ -16,7 +19,6 @@ def parse_docstring(docstring: str):
 
     lines = docstring.strip().splitlines()
     mode = "desc"
-    arg_name = None
 
     for line in lines:
         line = line.strip()
@@ -35,8 +37,10 @@ def parse_docstring(docstring: str):
             match = re.match(r"^(\w+)\s*\(([^)]+)\):\s*(.+)", line)
             if match:
                 arg_name, arg_type, arg_desc = match.groups()
+                # Normalize type by stripping "optional", "or None", etc.
+                norm_type = arg_type.split(",")[0].split("or")[0].strip()
                 parsed["args"][arg_name] = {
-                    "type": arg_type.strip(),
+                    "type": norm_type,
                     "desc": arg_desc.strip()
                 }
 
@@ -44,8 +48,9 @@ def parse_docstring(docstring: str):
             match = re.match(r"^([^:]+):\s*(.+)", line)
             if match:
                 ret_type, ret_desc = match.groups()
+                norm_type = ret_type.split(",")[0].split("or")[0].strip()
                 parsed["return"] = {
-                    "type": ret_type.strip(),
+                    "type": norm_type,
                     "desc": ret_desc.strip()
                 }
 

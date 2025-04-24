@@ -1,17 +1,17 @@
 def apply_update_operator(current, operator: str, value):
     """
-    Applique un opérateur d'affectation (+=, -=, *=, etc.) sur une valeur existante.
+    Applies an assignment operator (+=, -=, *=, etc.) to an existing value.
 
     Args:
-        current: La valeur actuelle.
-        operator: Une chaîne représentant l'opérateur (ex: "+=").
-        value: La valeur à appliquer.
+        current: The current value.
+        operator: A string representing the operator (e.g., "+=").
+        value: The value to apply.
 
     Returns:
-        Le résultat de l'opération.
+        The result of the operation.
 
     Raises:
-        ValueError: Si l'opérateur n'est pas supporté.
+        ValueError: ValueError: If the operator is not supported.
     """
     if operator == "+=":
         return current + value

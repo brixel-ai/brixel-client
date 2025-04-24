@@ -20,8 +20,12 @@ async def _send_message(broker, msg):
 def sync_send(broker, msg):
     try:
         loop = asyncio.get_running_loop()
-        # On est dans une boucle déjà active
-        loop.create_task(_send_message(broker, msg))  # ça ne bloque pas
+        loop.create_task(_send_message(broker, msg))
     except RuntimeError:
-        # Pas de boucle active, on en crée une juste pour cette tâche
         asyncio.run(_send_message(broker, msg))
+
+def safe_enum_value(enum_class, value):
+    try:
+        return enum_class(value)
+    except ValueError:
+        return None

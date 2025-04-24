@@ -1,16 +1,18 @@
-import json
 import requests
-import pytest # type: ignore
+import pytest
+import requests_mock
 from brixel.client import BrixelClient
-from brixel.models import create_agent, create_task
+from brixel.models import create_task
 from brixel.exceptions import BrixelAPIError, BrixelConnectionError
 
 API_KEY = "fake-api-key"
-ENDPOINT = "http://mocked-api.local/generate"
+ENDPOINT = "http://mocked-api.local/generate_plan"
 
 @pytest.fixture
 def brixel_client():
-    return BrixelClient(api_key=API_KEY, endpoint=ENDPOINT)
+    client = BrixelClient(api_key=API_KEY)
+    client.api_base_url = "http://mocked-api.local"
+    return client
 
 @pytest.fixture
 def agent():
@@ -20,13 +22,13 @@ def agent():
         inputs=[{"name": "text", "type": "string", "description": "The text to summarise", "required": True}],
         output={"type": "string", "description": "The summary"}
     )
-    return create_agent("Summarisation Agent", "Agent specialised in summarisation", [task])
+    return {"name": "Summarisation Agent", "description": "Agent specialised in summarisation", "tasks": [task]}
 
 def test_generate_plan_success(brixel_client, agent, requests_mock):
     mock_response = {"plan": {"id": "1234", "steps": []}}
     requests_mock.post(ENDPOINT, json=mock_response, status_code=200)
 
-    result = brixel_client.generate_plan("résume moi ça", agents=[agent])
+    result = brixel_client.generate_plan("Resume this", agents=[agent])
     assert "plan" in result
     assert result["plan"]["id"] == "1234"
 
@@ -51,89 +53,94 @@ def test_generate_plan_connection_error(brixel_client, agent, requests_mock):
         brixel_client.generate_plan("message", agents=[agent])
 
 
-def test_execute_plan_streaming(brixel_client, agent, requests_mock):
-    # Simule un flux de données avec des lignes JSON séparées
-    streaming_data = '\n'.join([
-        json.dumps({"step": 1, "message": "Plan started"}),
-        json.dumps({"step": 2, "message": "Running task"}),
-        json.dumps({"step": 3, "message": "Plan completed"})
-    ])
-
-    requests_mock.post(ENDPOINT, content=streaming_data.encode("utf-8"))
-
-    stream = brixel_client.execute_plan(
-        message="stream test",
-        agents=[agent],
-        stream=True
-    )
-
-    results = list(stream)
-
-    assert len(results) == 3
-    assert results[0]["step"] == 1
-    assert results[-1]["message"] == "Plan completed"
-
-def test_execute_plan_non_streaming(brixel_client, agent, requests_mock):
-    mock_json = {
-        "status": "completed",
-        "steps": [
-            {"step": 1, "message": "Started"},
-            {"step": 2, "message": "Finished"}
-        ]
-    }
-
-    requests_mock.post(ENDPOINT, json=mock_json, status_code=200)
-
-    result = brixel_client.execute_plan(
-        message="non-stream test",
-        agents=[agent],
-        stream=False
-    )
-
-    assert result["status"] == "completed"
-    assert len(result["steps"]) == 2
-    assert result["steps"][0]["message"] == "Started"
-
-def test_execute_plan_full_structure(brixel_client, agent, requests_mock):
-    # Exemple simplifié du plan que tu as partagé
-    mock_plan = {
-        "plan_id": "004cae7f-6498-4fe6-8d79-f3ee94c8020f",
+def test_execute_plan_local_subplan(brixel_client, requests_mock, agent):
+    plan = {
+        "plan_id": "abc123",
         "sub_plans": [
             {
                 "id": 0,
                 "agent": {
-                    "id": "42f7a263-d4d0-4437-9272-a0907563e330",
-                    "type": "hosted"
+                    "id": "test",
+                    "type": "local",
+                    "options": {}
                 },
-                "status": "complete",
                 "plan": [
-                    {"title": "Web search", "name": "web_search_with_serper_dev", "index": 0},
-                    {"title": "Return results", "name": "_return", "index": 1}
+                    {
+                        "name": "_assign",
+                        "index": 0,
+                        "output": "result",
+                        "inputs": {
+                            "value": "5"
+                        }
+                    },
+                    {
+                        "name": "_return",
+                        "index": 1,
+                        "inputs": {
+                            "value": "result"
+                        }
+                    }
                 ]
             }
-        ],
-        "metrics": {
-            "plans_generated": 1,
-            "generation_time": 5.2,
-            "steps": 2
-        }
+        ]
     }
 
-    requests_mock.post(ENDPOINT, json=mock_plan, status_code=200)
+    result = brixel_client.execute_plan(plan)
+    assert result is None
 
-    result = brixel_client.execute_plan(
-        message="Structure test",
-        agents=[agent],
-        stream=False
+
+def test_execute_plan_hosted_subplan(brixel_client, requests_mock, agent):
+    plan_id = "xyz456"
+    sub_id = 1
+    plan = {
+        "plan_id": plan_id,
+        "sub_plans": [
+            {
+                "id": sub_id,
+                "agent": {
+                    "id": "hosted-agent",
+                    "type": "hosted"
+                }
+            }
+        ]
+    }
+
+    response_data = {"message": "done!"}
+
+    requests_mock.post(
+        f"http://mocked-api.local/{plan_id}/sub_plan/{sub_id}/execute",
+        json=response_data
     )
 
-    assert "plan_id" in result
-    assert result["plan_id"] == "004cae7f-6498-4fe6-8d79-f3ee94c8020f"
+    result = brixel_client.execute_plan(plan)
 
-    assert "sub_plans" in result
-    assert len(result["sub_plans"]) == 1
+    assert result is None
 
-    plan = result["sub_plans"][0]["plan"]
-    assert isinstance(plan, list)
-    assert plan[0]["name"] == "web_search_with_serper_dev"
-    assert result["metrics"]["plans_generated"] == 1
+
+def test_execute_plan_with_multiple_subplans(brixel_client, requests_mock, agent):
+    plan = {
+        "plan_id": "plan789",
+        "sub_plans": [
+            {
+                "id": 0,
+                "agent": {"id": "local-agent", "type": "local"},
+                "plan": [
+                    {"name": "_assign", "index": 0, "output": "x", "inputs": {"value": "42"}},
+                    {"name": "_return", "index": 1, "inputs": {"value": "x"}}
+                ]
+            },
+            {
+                "id": 1,
+                "agent": {"id": "hosted-agent", "type": "hosted"},
+            }
+        ]
+    }
+
+    requests_mock.post(
+        "http://mocked-api.local/plan789/sub_plan/1/execute",
+        json={"status": "ok"}
+    )
+
+    result = brixel_client.execute_plan(plan)
+
+    assert result is None

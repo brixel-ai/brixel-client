@@ -6,5 +6,6 @@ class ApiEventName(str, Enum):
     FOR_ITERATION_START = "for_iteration_start"
     WHILE_ITERATION_START = "while_iteration_start"
     ERROR = "error"
+    SUB_PLAN_START = "sub_plan_start"
     SUB_PLAN_DONE = "sub_plan_done"
     DONE = "done"
