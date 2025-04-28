@@ -6,9 +6,9 @@ from .docstring_parser import parse_docstring
 REGISTERED_TASKS: List[Callable] = []
 REGISTERED_AGENTS = {}
 
-def task(_func=None, *, agent_id: str = None):
+def task(_func=None, *, agent_id: str = None, display_output: bool = False):
     def decorator(fn):
-        fn._brixel_task = {"agent_id": agent_id or "default"}
+        fn._brixel_task = {"agent_id": agent_id or "default", "display_output": display_output or False}
         REGISTERED_TASKS.append(fn)
         return fn
 
@@ -23,7 +23,8 @@ def agent(id: str):
         REGISTERED_AGENTS[id] = {
             "id": id,
             "name": getattr(cls, "name", id),
-            "description": getattr(cls, "description", "")
+            "description": getattr(cls, "description", ""),
+            "context": getattr(cls, "context", ""),
         }
         return cls
     return wrapper
@@ -49,7 +50,7 @@ def get_registered_tasks() -> Dict[str, List[Dict[str, Any]]]:
         hints = get_type_hints(fn)
         meta = getattr(fn, "_brixel_task", {})
         agent_id = meta.get("agent_id", "default")
-
+        display_output = meta.get("display_output", False)
         doc = fn.__doc__ or ""
         parsed_doc = parse_docstring(doc)
 
@@ -79,6 +80,9 @@ def get_registered_tasks() -> Dict[str, List[Dict[str, Any]]]:
             "description": parsed_doc["description"],
             "configuration": {
                 "inputs": inputs
+            },
+            "options": {
+                "display_output": display_output
             }
         }
 

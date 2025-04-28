@@ -1,8 +1,7 @@
-# brixel/base_client.py
 from __future__ import annotations
-import os, json
+import os
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .events import ApiEventName
 from .decorators import (
@@ -116,6 +115,17 @@ class _BaseClient:
         sync_send(self.broker, msg)
 
     # ------------------------------------------------------------------ #
+    #  list_modules (one implementation)
+    # ------------------------------------------------------------------ #
+    def list_modules(self) -> List[Dict[str, Any]]:
+        """
+        Fetches the list of modules from the API.
+        Returns a list of modules with their metadata and minimal agent data.
+        """
+        return self._get("/list")
+
+
+    # ------------------------------------------------------------------ #
     #  generate_plan (one implementation)
     # ------------------------------------------------------------------ #
     def generate_plan(self,
@@ -166,3 +176,6 @@ class _BaseClient:
     # ------------------------------------------------------------------ #
     # sync version – returns Dict
     def _post_json(self, path: str, payload: dict, *, timeout: int) -> Dict: ...
+    # sync or async override
+    def _get(self, path: str, *, timeout: int = 10) -> Dict: ...
+

@@ -2,6 +2,7 @@ import json, httpx
 from typing import Dict
 
 from brixel.base_client import _BaseClient
+from brixel.exceptions import BrixelAPIError, BrixelConnectionError
 from .events import ApiEventName
 from .utils import safe_enum_value
 
@@ -13,10 +14,30 @@ class AsyncBrixelClient(_BaseClient):
                          *, timeout: int = 30) -> Dict:
         url = f"{self.api_base}{path}"
         async with httpx.AsyncClient(timeout=timeout) as cli:
-            r = await cli.post(url, headers=self._headers(), json=payload)
-            r.raise_for_status()
-            return r.json()
+            try:
+                r = await cli.post(url, headers=self._headers(), json=payload)
+                r.raise_for_status()
+                return r.json()
+            except httpx.ConnectError as e:
+                raise BrixelConnectionError(str(e)) from e
+            except httpx.TimeoutException:
+                raise BrixelConnectionError("Timeout")
+            except httpx.HTTPStatusError as e:
+                raise BrixelAPIError(str(e.response.text)) from e
 
+    async def _get(self, path: str, *, timeout: int = 10) -> Dict:
+        url = f"{self.api_base}{path}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                r = await client.get(url, headers=self._headers())
+                r.raise_for_status()
+                return r.json()
+            except httpx.ConnectError as e:
+                raise BrixelConnectionError(str(e)) from e
+            except httpx.TimeoutException:
+                raise BrixelConnectionError("Timeout")
+            except httpx.HTTPStatusError as e:
+                raise BrixelAPIError(str(e.response.text)) from e
     
     # ------------------------------------------------------------------ #
     #  execute_plan – async
@@ -65,8 +86,10 @@ class AsyncBrixelClient(_BaseClient):
                         continue
                     msg = json.loads(line)
                     event = safe_enum_value(ApiEventName, msg["event"])
-                    if event == ApiEventName.DONE:
-                        ret = msg.get("output")
+                    if not event:
+                        continue
+                    elif event == ApiEventName.DONE:
+                        ret = msg.get("details", {}).get("output")
                     elif event in (ApiEventName.SUB_PLAN_START, ApiEventName.SUB_PLAN_DONE, None):
                         continue
                     else:

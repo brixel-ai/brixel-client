@@ -14,6 +14,7 @@
 - 🔁 Integrated streaming/message broker system.
 - 📦 Compatible with `asyncio`, lists, functions, and queues for messaging.
 - ☁️ Support for remote execution of hosted and external agents.
+- 🖥️ Expose external agents via HTTP using `BrixelServer`.
 
 ---
 
@@ -274,6 +275,141 @@ supports:
 - ✅ `async def websocket.send(msg)`
 - ✅ `callable` / `async callable`
 - ✅ `async generators`
+
+---
+
+## 🖥️ External Agent: Server Mode with FastAPI
+
+Brixel also supports running **external** agents using the `BrixelServer` class and exposing them over HTTP with frameworks like **FastAPI**. This is useful for:
+
+- Using your local agent outside the **API** module and make it available for your organisation
+
+
+### Requirements
+
+To expose an agent as an **external server-based agent**, your FastAPI app must implement:
+
+1. **An endpoint to expose agent configuration and tasks**  
+   This is used by Brixel to **discover the available tasks** and register the agent.
+
+   ```http
+   GET /get_configuration
+   ```
+
+2. **An endpoint to execute a sub-plan**  
+   This receives a `sub_plan`, a `sub_id`, and a **signed payload** to ensure the plan originated from Brixel.
+
+   ```http
+   POST /execute_plan
+   ```
+
+   The `payload` should include:
+   - `plan_id`: the ID of the parent plan
+   - `sub_id`: the unique sub-plan identifier
+   - `sub_plan`: the list of steps to execute
+   - `inputs`: optional input values
+   - `signature`: a signed string that validates the payload origin
+
+> 🔐 **Security Tip**  
+> You can (and should) add extra authentication mechanisms, such as:
+> - API key in headers
+> - OAuth bearer tokens
+
+> The path of the two endpoints are not important, they need to be configured on Brixel platform when creating an Agent of type **external**
+>
+> The authentication mechanisms need also to be configured on Brixel platform
+
+
+### 🛠️ Example: Expose your agent with FastAPI
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+import asyncio
+import json
+
+from brixel.server import BrixelServer
+from brixel.events import ApiEventName
+from brixel.decorators import agent, task
+
+@agent(id="image")
+class ImageAgent:
+    name = "Image Agent"
+    description = "Performs various operations on images."
+
+@task(agent_id="image")
+def grayscale_image(image_b64: str) -> str:
+    # Your task logic here...
+    pass
+
+app = FastAPI()
+secret = "your_shared_secret"
+options = {"stream": True}
+
+@app.get("/get_configuration")
+def get_configuration():
+    server = BrixelServer(agent_id="image", secret=secret, options=options)
+    return server.get_configuration()
+
+class SubPlanInput(BaseModel):
+    plan_id: str
+    sub_id: int
+    sub_plan: list
+    signature: str = None
+    inputs: dict = None
+
+def make_broker(queue: asyncio.Queue):
+    loop = asyncio.get_running_loop()
+    def broker_sync(msg: dict):
+        loop.call_soon_threadsafe(queue.put_nowait, msg)
+    return broker_sync
+
+async def event_stream(queue: asyncio.Queue):
+    while True:
+        item = await queue.get()
+        yield f"{json.dumps(item)}\n"
+        if item["event"] in (ApiEventName.DONE, ApiEventName.ERROR):
+            break
+
+@app.post("/execute_plan")
+async def execute_plan(payload: SubPlanInput):
+    """
+    Execute a sub-plan locally and stream events back to the client.
+    """
+    q_messages: asyncio.Queue = asyncio.Queue()
+    broker = make_broker(q_messages)
+    server = BrixelServer(agent_id="image", secret=secret, options=options, message_broker=broker)
+
+    async def run_plan_in_thread():
+        """Run plan in a separate thread and push results into the queue."""
+        try:
+            await asyncio.to_thread(
+                server.execute_plan,
+                sub_id=payload.sub_id,
+                sub_plan=payload.sub_plan,
+                signature=payload.signature,
+                inputs=payload.inputs,
+            )
+        except Exception as exc:
+            await q_messages.put({
+                "event": ApiEventName.ERROR,
+                "details": {"error": str(exc)},
+            })
+
+    asyncio.create_task(run_plan_in_thread())
+
+    return StreamingResponse(
+        event_stream(q_messages),
+        media_type="application/json",
+    )
+
+```
+
+> 💡 **Use case**  
+> You can test your agents locally with the **API** module, then, once they are ready, deploy them as **external** agents to be use on every modules
+>
+> Your externals agents behave like a local agent, the execution of the sub plan is still done on your server
 
 ---
 

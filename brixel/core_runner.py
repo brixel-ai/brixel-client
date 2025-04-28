@@ -6,8 +6,13 @@ from .node_utils import apply_update_operator
 class CoreRunner:
 
     @staticmethod
-    def build_task_map():
-        return {fn.__name__: fn for fn in REGISTERED_TASKS}
+    def build_task_map(agent_id: str = None):
+        return {
+            fn.__name__: fn
+            for fn in REGISTERED_TASKS
+            if agent_id is None or getattr(fn, "_brixel_task", {}).get("agent_id", "default") == agent_id
+        }
+
     
 
     @staticmethod
@@ -106,13 +111,30 @@ class CoreRunner:
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"output": context[var_name]})
 
             elif name == "_for":
-                iterable = self._evaluate_expression(node["inputs"]["iterable"], context)
-                item_var = node["inputs"]["item"]
-                children = node["inputs"].get("children", [])
-                for idx, item in enumerate(iterable):
-                    context[item_var] = item
-                    publish(sub_id, ApiEventName.FOR_ITERATION_START, node, {"iteration_index": idx, "iterable_length": len(iterable)})
-                    self._execute_nodes(sub_id, children, context, task_map, publish)
+                item_name  = node["inputs"]["item"]
+                index_var  = node["inputs"].get("index")
+                key_var    = node["inputs"].get("key")
+                base_iter  = self._evaluate_expression(node["inputs"]["iterable"], context)
+
+                if key_var is not None:
+                    # for key, val in data.items()
+                    loop_iterable = base_iter.items()
+                else:
+                    # for val in data or for idx, val in enumerate(data)
+                    loop_iterable = base_iter
+
+                for idx, element in enumerate(loop_iterable):
+                    publish(sub_id, ApiEventName.FOR_ITERATION_START, node, {"iteration_index": idx, "iterable_length": len(base_iter)})
+                    if key_var is not None:
+                        k, v = element
+                        context[key_var]  = k
+                        context[item_name] = v
+                    else:
+                        context[item_name] = element
+                        if index_var is not None:
+                            context[index_var] = idx
+                    self._execute_nodes(sub_id, node.get("inputs", {}).get("children", []), context, task_map, publish)
+
                     if context.get("_break_flag"):
                         context["_break_flag"] = False
                         break
@@ -156,8 +178,8 @@ class CoreRunner:
             publish(sub_id, ApiEventName.ERROR, node, {"error": str(e)})
             raise e
             
-    def run_local_plan(self, context, sub_plan, publish):
-        task_map = self.build_task_map()
+    def run_local_plan(self, context, sub_plan, publish, agent_id=None):
+        task_map = self.build_task_map(agent_id)
         sub_id = sub_plan["id"]
         nodes = sub_plan["plan"]
         self._execute_nodes(sub_id, nodes, context, task_map, publish)

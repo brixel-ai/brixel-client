@@ -27,7 +27,19 @@ class BrixelClient(_BaseClient):
             raise BrixelConnectionError("Timeout")
         except requests.exceptions.HTTPError as e:
             raise BrixelAPIError(e.response.text) from e
-     
+    
+    def _get(self, path: str, *, timeout: int = 10) -> Dict:
+        url = f"{self.api_base}{path}"
+        try:
+            r = requests.get(url, headers=self._headers(), timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.ConnectionError as e:
+            raise BrixelConnectionError(str(e)) from e
+        except requests.exceptions.Timeout:
+            raise BrixelConnectionError("Timeout")
+        except requests.exceptions.HTTPError as e:
+            raise BrixelAPIError(e.response.text) from e
 
     def execute_plan(self, plan: dict, files: list = None) -> dict:
         
