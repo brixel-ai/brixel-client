@@ -1,6 +1,7 @@
 
 import json
-from typing import Dict
+import os
+from typing import Dict, Optional
 import requests
 
 from brixel.base_client import _BaseClient
@@ -41,32 +42,53 @@ class BrixelClient(_BaseClient):
         except requests.exceptions.HTTPError as e:
             raise BrixelAPIError(e.response.text) from e
 
-    def execute_plan(self, plan: dict, files: list = None) -> dict:
+
+
+    def generate_plan(
+        self,
+        *,
+        message: str,
+        files: Optional[list] = None,
+        module_id: Optional[str] = None,
+        context: str = "",
+        agents: Optional[list] = None,
+        auto_tasks: bool = True,
+        timeout: int = 30,
+    ) -> dict:
+        payload = self._build_generate_plan_payload(
+            message=message,
+            files=files,
+            module_id=module_id,
+            context=context,
+            agents=agents,
+            auto_tasks=auto_tasks,
+        )
+
+        try:
+            return self._post_json("/generate_plan", payload, timeout=timeout)
+        except BrixelConnectionError:
+            raise
+        except Exception as exc:
+            raise BrixelAPIError(str(exc)) from exc
         
-        global_context = {}
-        plan_id = plan["plan_id"]
+    def _post_multipart_file(self, content: bytes, filename: str) -> dict:
+        url, headers, files = self._prepare_upload_request(content, filename)
+        headers = self._headers(json=False)
+        response = requests.post(url, headers=headers, files=files)
 
-        for sub_plan in plan.get("sub_plans", []):
-            sub_id = sub_plan["id"]
-            agent_type = sub_plan["agent"]["type"]
+        if response.status_code != 200:
+            raise BrixelAPIError(f"Failed to upload file: {response.text}")
 
-            context = {
-                "files": files or []
-            }
+        return response.json()
+    
+    def execute_plan(self, plan: dict, files: list = None) -> dict:
+        return self._run_execution_loop(plan, files)
 
-            if sub_plan.get('inputs'):
-                for sp_input in sub_plan.get("inputs", []):
-                    context[sp_input["name"]] = global_context.get(sp_input["from"])
-            
-            self._publish(sub_id, ApiEventName.SUB_PLAN_START)
-            if agent_type == "local":
-                result = self.runner.run_local_plan(context, sub_plan, self._publish)
-            else:
-                result = self._execute_external_plan(context, plan_id, sub_id)
-            
-            global_context[sub_id] = result
-            self._publish(sub_id, ApiEventName.SUB_PLAN_DONE)
-        self._publish(sub_id, ApiEventName.DONE)
+    def _run_local(self, context: dict, sub_plan: dict) -> dict:
+        return self.runner.run_local_plan(context, sub_plan, self._publish)
+
+    def _run_external(self, context: dict, plan_id: str, sub_plan_id: str) -> dict:
+        return self._execute_external_plan(context, plan_id, sub_plan_id)
     
 
     def _execute_external_plan(self, context, plan_id, sub_plan_id):
@@ -90,6 +112,8 @@ class BrixelClient(_BaseClient):
                 event = safe_enum_value(ApiEventName, msg["event"])
                 if event in (ApiEventName.DONE, ApiEventName.SUB_PLAN_START, ApiEventName.SUB_PLAN_DONE, None):
                     continue
+                elif event == ApiEventName.ERROR:
+                    raise Exception(msg.get("details",{}).get("error", "Unknown error from external agent"))
                 else:
                     node = {
                         "index": msg.get("node_index"),

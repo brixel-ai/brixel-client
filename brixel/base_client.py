@@ -19,7 +19,6 @@ class _BaseClient:
     Sub-classes must implement the 2 low-level HTTP helpers:
 
         _post_json(...)          ← sync, returns Python dict
-        _post_json_stream(...)   ← async iterator yielding JSON lines (only for async)
     """
 
     # ------------------------------------------------------------------ #
@@ -43,12 +42,14 @@ class _BaseClient:
     # ------------------------------------------------------------------ #
     #  helper: HTTP headers
     # ------------------------------------------------------------------ #
-    def _headers(self) -> Dict[str, str]:
-        return {
+    def _headers(self, *, json: bool = True) -> Dict[str, str]:
+        headers = {
             "x-api-key": self.api_key,
-            "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        if json:
+            headers["Content-Type"] = "application/json"
+        return headers
 
     # -------------  meta-information helpers (one implementation) ------ #
     def list_registered_tasks(self) -> List[str]:
@@ -89,6 +90,26 @@ class _BaseClient:
             }
             for agent_id, info in REGISTERED_AGENTS.items()
         ]
+    
+    def _prepare_upload_request(self, content: bytes, filename: str):
+        url = f"{self.api_base}/upload_file"
+        headers = self._headers(json=False)
+        files = {
+            "file": (filename, content),
+        }
+        return url, headers, files
+    
+    def upload_content(self, content: bytes, filename: str) -> dict:
+        return self._post_multipart_file(content, filename)
+
+    async def async_upload_content(self, content: bytes, filename: str) -> dict:
+        return await self._post_multipart_file_async(content, filename)
+
+    def _post_multipart_file(self, path: str, content: bytes, filename: str) -> dict:
+        raise NotImplementedError
+
+    async def _post_multipart_file_async(self, path: str, content: bytes, filename: str) -> dict:
+        raise NotImplementedError
 
     # ------------------------------------------------------------------ #
     #  broker publish (shared)
@@ -125,20 +146,19 @@ class _BaseClient:
         return self._get("/list")
 
 
-    # ------------------------------------------------------------------ #
-    #  generate_plan (one implementation)
-    # ------------------------------------------------------------------ #
-    def generate_plan(self,
-                      *,
-                      message: str,
-                      files: Optional[list] = None,
-                      module_id: str | None = None,
-                      context: str = "",
-                      agents: Optional[list] = None,
-                      auto_tasks: bool = True,
-                      timeout: int = 30) -> Dict:
 
+    def _build_generate_plan_payload(
+        self,
+        *,
+        message: str,
+        files: Optional[list] = None,
+        module_id: Optional[str] = None,
+        context: str = "",
+        agents: Optional[list] = None,
+        auto_tasks: bool = True,
+    ) -> dict:
         agents = agents or []
+
         if auto_tasks:
             tasks_by_agent = get_registered_tasks()
             for agent_id, tasks in tasks_by_agent.items():
@@ -156,20 +176,74 @@ class _BaseClient:
                     "tasks":       tasks,
                 })
 
-        payload = {
+        return {
             "module_id": module_id,
             "context":   context,
             "message":   message,
             "files":     files or [],
             "agents":    agents,
         }
+    
+    def _run_local(self, context: dict, sub_plan: dict) -> dict:
+        raise NotImplementedError
 
-        try:
-            return self._post_json("/generate_plan", payload, timeout=timeout)
-        except BrixelConnectionError:
-            raise
-        except Exception as exc:          # capture http-errors in subclass
-            raise BrixelAPIError(str(exc)) from exc
+    async def _run_local_async(self, context: dict, sub_plan: dict) -> dict:
+        raise NotImplementedError
+
+    def _run_external(self, context: dict, plan_id: str, sub_plan_id: str) -> dict:
+        raise NotImplementedError
+
+    async def _run_external_async(self, context: dict, plan_id: str, sub_plan_id: str) -> dict:
+        raise NotImplementedError
+    
+
+    def _build_execution_context(self, sub_plan: dict, global_context: dict, files: list) -> dict:
+        context = {"files": files or []}
+        if sub_plan.get("inputs"):
+            for sp_input in sub_plan["inputs"]:
+                context[sp_input["name"]] = global_context.get(sp_input["from"])
+        return context
+
+
+    def _run_execution_loop(self, plan: dict, files: list = None) -> dict:
+        plan_id = plan["plan_id"]
+        global_context = {}
+
+        for sub_plan in plan.get("sub_plans", []):
+            sub_id = sub_plan["id"]
+            agent_type = sub_plan["agent"]["type"]
+            context = self._build_execution_context(sub_plan, global_context, files)
+
+            self._publish(sub_id, ApiEventName.SUB_PLAN_START)
+            if agent_type == "local":
+                result = self._run_local(context, sub_plan)
+            else:
+                result = self._run_external(context, plan_id, sub_id)
+            global_context[sub_id] = result
+            self._publish(sub_id, ApiEventName.SUB_PLAN_DONE)
+
+        self._publish(plan_id, ApiEventName.DONE)
+        return global_context
+
+    async def _run_execution_loop_async(self, plan: dict, files: list = None) -> dict:
+        plan_id = plan["plan_id"]
+        global_context = {}
+
+        for sub_plan in plan.get("sub_plans", []):
+            sub_id = sub_plan["id"]
+            agent_type = sub_plan["agent"]["type"]
+            context = self._build_execution_context(sub_plan, global_context, files)
+
+            self._publish(sub_id, ApiEventName.SUB_PLAN_START)
+            if agent_type == "local":
+                result = await self._run_local_async(context, sub_plan)
+            else:
+                result = await self._run_external_async(context, plan_id, sub_id)
+            global_context[sub_id] = result
+            self._publish(sub_id, ApiEventName.SUB_PLAN_DONE)
+
+        self._publish(plan_id, ApiEventName.DONE)
+        return global_context
 
     # ------------------------------------------------------------------ #
     #  SUB-CLASSES MUST OVERRIDE ↓

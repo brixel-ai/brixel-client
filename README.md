@@ -454,6 +454,40 @@ This will install:
 sudo apt install graphviz
 ```
 
+---
+
+## 📚 Managing Modules and Uploading Files
+
+### 📄 List Available Modules
+
+You can retrieve the list of available **API** modules connected to your account using:
+
+```python
+modules = client.list_modules()
+print(modules)
+```
+
+---
+
+### 🗂️ Upload Binary Content
+
+You can upload any binary content (e.g., images, documents) directly to Brixel storage and retrieve a URL for use in plan generation:
+
+```python
+with open("your_file.png", "rb") as file:
+    content = file.read()
+
+resp = client.upload_content(content, filename="your_file.png")
+print("Uploaded file URL:", resp["url"])
+```
+
+This is especially useful when you want to pass **local files** to your workflows without manually hosting them elsewhere.
+
+> 💡 **Tip**  
+> The `upload_content` method automatically returns a secure, accessible URL that you can immediately use when generating a plan (`files=[...]`).
+>
+> Or if you want to return an accessible URL as output of an executed sub plan
+
 ## 📘 License
 
 Apache 2 License — [Brixel](https://brixel.ai)

@@ -1,5 +1,5 @@
 import json, httpx
-from typing import Dict
+from typing import Dict, Optional
 
 from brixel.base_client import _BaseClient
 from brixel.exceptions import BrixelAPIError, BrixelConnectionError
@@ -40,35 +40,60 @@ class AsyncBrixelClient(_BaseClient):
                 raise BrixelAPIError(str(e.response.text)) from e
     
     # ------------------------------------------------------------------ #
+    #  generate_plan – async
+    # ------------------------------------------------------------------ #
+
+    async def generate_plan(
+        self,
+        *,
+        message: str,
+        files: Optional[list] = None,
+        module_id: Optional[str] = None,
+        context: str = "",
+        agents: Optional[list] = None,
+        auto_tasks: bool = True,
+        timeout: int = 30,
+    ) -> dict:
+        payload = self._build_generate_plan_payload(
+            message=message,
+            files=files,
+            module_id=module_id,
+            context=context,
+            agents=agents,
+            auto_tasks=auto_tasks,
+        )
+
+        try:
+            return await self._post_json("/generate_plan", payload, timeout=timeout)
+        except BrixelConnectionError:
+            raise
+        except Exception as exc:
+            raise BrixelAPIError(str(exc)) from exc
+
+    async def _post_multipart_file_async(self, content: bytes, filename: str) -> dict:
+        url, headers, files = self._prepare_upload_request(content, filename)
+        headers = self._headers(json=False)
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, files=files)
+
+        if response.status_code != 200:
+            raise BrixelAPIError(f"Failed to upload file: {response.text}")
+
+        return response.json()
+
+    # ------------------------------------------------------------------ #
     #  execute_plan – async
     # ------------------------------------------------------------------ #
 
     async def execute_plan(self, plan: dict, files: list = None) -> dict:
-        
-        global_context = {}
-        plan_id = plan["plan_id"]
+        return await self._run_execution_loop_async(plan, files)
 
-        for sub_plan in plan.get("sub_plans", []):
-            sub_id = sub_plan["id"]
-            agent_type = sub_plan["agent"]["type"]
+    async def _run_local_async(self, context: dict, sub_plan: dict) -> dict:
+        return self.runner.run_local_plan(context, sub_plan, self._publish)
 
-            context = {
-                "files": files or []
-            }
-
-            if sub_plan.get('inputs'):
-                for sp_input in sub_plan.get("inputs", []):
-                    context[sp_input["name"]] = global_context.get(sp_input["from"])
-            
-            self._publish(sub_id, ApiEventName.SUB_PLAN_START)
-            if agent_type == "local":
-                result = self.runner.run_local_plan(context, sub_plan, self._publish)
-            else:
-                result = await self._execute_external_plan(context, plan_id, sub_id)
-            
-            global_context[sub_id] = result
-            self._publish(sub_id, ApiEventName.SUB_PLAN_DONE)
-        self._publish(sub_id, ApiEventName.DONE)
+    async def _run_external_async(self, context: dict, plan_id: str, sub_plan_id: str) -> dict:
+        return await self._execute_external_plan(context, plan_id, sub_plan_id)
 
 
     async def _execute_external_plan(self, context, plan_id, sub_plan_id):
@@ -88,6 +113,8 @@ class AsyncBrixelClient(_BaseClient):
                     event = safe_enum_value(ApiEventName, msg["event"])
                     if not event:
                         continue
+                    elif event == ApiEventName.ERROR:
+                        raise Exception(msg.get("details",{}).get("error", "Unknown error from external agent"))
                     elif event == ApiEventName.DONE:
                         ret = msg.get("details", {}).get("output")
                     elif event in (ApiEventName.SUB_PLAN_START, ApiEventName.SUB_PLAN_DONE, None):
