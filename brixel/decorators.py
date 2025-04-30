@@ -6,9 +6,9 @@ from .docstring_parser import parse_docstring
 REGISTERED_TASKS: List[Callable] = []
 REGISTERED_AGENTS = {}
 
-def task(_func=None, *, agent_id: str = None, display_output: bool = False):
+def task(_func=None, *, agent_id: str = None, display_output: bool = False, available_output: bool = False):
     def decorator(fn):
-        fn._brixel_task = {"agent_id": agent_id or "default", "display_output": display_output or False}
+        fn._brixel_task = {"agent_id": agent_id or "default", "display_output": display_output or False, "available_output": available_output or False}
         REGISTERED_TASKS.append(fn)
         return fn
 
@@ -51,6 +51,7 @@ def get_registered_tasks() -> Dict[str, List[Dict[str, Any]]]:
         meta = getattr(fn, "_brixel_task", {})
         agent_id = meta.get("agent_id", "default")
         display_output = meta.get("display_output", False)
+        available_output = meta.get("available_output", False)
         doc = fn.__doc__ or ""
         parsed_doc = parse_docstring(doc)
 
@@ -82,7 +83,8 @@ def get_registered_tasks() -> Dict[str, List[Dict[str, Any]]]:
                 "inputs": inputs
             },
             "options": {
-                "display_output": display_output
+                "display_output": display_output,
+                "available_output": available_output
             }
         }
 

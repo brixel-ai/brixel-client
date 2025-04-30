@@ -40,17 +40,21 @@ class CoreRunner:
     
     def _execute_if_chain(self, sub_id, chain, context, task_map, publish):
         for node in chain:
-            name = node["name"]
-            if name in ("_if", "_elif"):
-                cond = self._evaluate_expression(node["inputs"]["condition"], context)
-                if cond:
+            try:
+                name = node["name"]
+                if name in ("_if", "_elif"):
+                    cond = self._evaluate_expression(node["inputs"]["condition"], context)
+                    if cond:
+                        for child in node["inputs"].get("children", []):
+                            self._execute_node(sub_id, child, context, task_map, publish)
+                        return
+                elif name == "_else":
                     for child in node["inputs"].get("children", []):
                         self._execute_node(sub_id, child, context, task_map, publish)
                     return
-            elif name == "_else":
-                for child in node["inputs"].get("children", []):
-                    self._execute_node(sub_id, child, context, task_map, publish)
-                return
+            except Exception as exc:
+                publish(sub_id, ApiEventName.ERROR, node, {"error": str(exc)})
+                raise
 
 
     def _execute_nodes(self, sub_id, nodes, context, task_map, publish):
