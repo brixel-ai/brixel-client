@@ -9,3 +9,4 @@ class ApiEventName(str, Enum):
     SUB_PLAN_START = "sub_plan_start"
     SUB_PLAN_DONE = "sub_plan_done"
     DONE = "done"
+    EXECUTION_INTERRUPTED = "execution_interrupted"
