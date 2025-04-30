@@ -130,7 +130,16 @@ class BrixelServer:
         # 4) run
         start = time.time()
         self._publish(sub_id, ApiEventName.SUB_PLAN_START)
-        result = self.runner.run_local_plan(ctx, {"id": sub_id, "plan": sub_plan}, self._publish, self.agent_id)
+        try:
+            result = self.runner.run_local_plan(ctx, {"id": sub_id, "plan": sub_plan}, self._publish, self.agent_id)
+        except Exception as exc:
+            self._publish(sub_id, ApiEventName.EXECUTION_INTERRUPTED, details=
+            {
+                "reason": {
+                    "error": str(exc)
+                }
+            })
+            raise
         self._publish(sub_id, ApiEventName.SUB_PLAN_DONE, details={
             "plan_id": sub_id,
             "execution_time": time.time() - start,
