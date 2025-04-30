@@ -1,4 +1,5 @@
 import ast, time
+from typing import Any
 from .events import ApiEventName
 from .decorators import REGISTERED_TASKS
 from .node_utils import apply_update_operator
@@ -24,6 +25,15 @@ class CoreRunner:
         except Exception:
             return eval(expr, {}, ctx)
 
+    @staticmethod
+    def add_output_to_display_outputs(node: dict, result: Any, ctx: dict):
+        if node.get("options", {}).get("display_output"):
+            if not ctx.get("displayed_outputs"):
+                ctx["displayed_outputs"] = []
+            ctx["displayed_outputs"].append({
+                "index": node["index"],
+                "output": result
+            })
 
     def _evaluate_expression(self, expr, context):
         try:
@@ -82,16 +92,19 @@ class CoreRunner:
             if name == "_assign":
                 value = self._evaluate_expression(node["inputs"]["value"], context)
                 context[node["output"]] = value
+                self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"value": value})
 
             elif name == "_append":
                 value = self._evaluate_expression(node["inputs"]["value"], context)
                 context.setdefault(node["output"], []).append(value)
+                self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"item": value})
 
             elif name == "_return":
                 value = self._evaluate_expression(node["inputs"]["value"], context)
                 context["_return"] = value
+                self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"output": value})
                 return value
             
@@ -112,6 +125,7 @@ class CoreRunner:
                     raise Exception(f"Variable '{var_name}' not defined for update")
 
                 context[var_name] = apply_update_operator(context[var_name], op, value)
+                self.add_output_to_display_outputs(node, context[var_name], context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"output": context[var_name]})
 
             elif name == "_for":
@@ -177,6 +191,7 @@ class CoreRunner:
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"output": result})
                 if "output" in node:
                     context[node["output"]] = result
+                self.add_output_to_display_outputs(node, result, context)
                 return result
         except Exception as e:
             publish(sub_id, ApiEventName.ERROR, node, {"error": str(e)})
