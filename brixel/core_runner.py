@@ -1,3 +1,4 @@
+import builtins
 import ast, time
 from typing import Any
 from .events import ApiEventName
@@ -182,7 +183,11 @@ class CoreRunner:
             else:
                 task_fn = task_map.get(name)
                 if not task_fn:
-                    raise Exception(f"Function '{name}' not found")
+                    # Check if the function exists in the builtins
+                    task_fn = getattr(builtins, name, None)
+                    if task_fn is None:
+                        raise Exception(f"Function '{name}' not found")
+                    
                 inputs = {
                     k: self._evaluate_expression(v, context)
                     for k, v in node["inputs"].items()
