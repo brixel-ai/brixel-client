@@ -1,9 +1,37 @@
-import builtins
 import ast, time
 from typing import Any
 from .events import ApiEventName
 from .decorators import REGISTERED_TASKS
 from .node_utils import apply_update_operator
+
+safe_builtins = {
+    "abs": abs,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "float": float,
+    "int": int,
+    "len": len,
+    "list": list,
+    "max": max,
+    "min": min,
+    "pow": pow,
+    "range": range,
+    "reversed": reversed,
+    "round": round,
+    "set": set,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+    "enumerate": enumerate,
+    "map": map,
+    "filter": filter,
+    "any": any,
+    "all": all
+}
 
 class CoreRunner:
 
@@ -36,14 +64,18 @@ class CoreRunner:
                 "output": result
             })
 
-    def _evaluate_expression(self, expr, context):
+    def _evaluate_expression(self, expr, context, task_map):
         try:
             if expr is None:
                 return expr
             return ast.literal_eval(expr)
         except Exception:
             try:
-                return eval(expr, {}, context)
+                safe_globals = {
+                    "__builtins__": safe_builtins,
+                    **task_map
+                }
+                return eval(expr, safe_globals, context)
             except Exception:
                 if expr in context:
                     return context[expr]
@@ -54,7 +86,7 @@ class CoreRunner:
             try:
                 name = node["name"]
                 if name in ("_if", "_elif"):
-                    cond = self._evaluate_expression(node["inputs"]["condition"], context)
+                    cond = self._evaluate_expression(node["inputs"]["condition"], context, task_map)
                     if cond:
                         for child in node["inputs"].get("children", []):
                             self._execute_node(sub_id, child, context, task_map, publish)
@@ -91,19 +123,19 @@ class CoreRunner:
             publish(sub_id, ApiEventName.NODE_START, node)
             name = node["name"]
             if name == "_assign":
-                value = self._evaluate_expression(node["inputs"]["value"], context)
+                value = self._evaluate_expression(node["inputs"]["value"], context, task_map)
                 context[node["output"]] = value
                 self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"value": value})
 
             elif name == "_append":
-                value = self._evaluate_expression(node["inputs"]["value"], context)
+                value = self._evaluate_expression(node["inputs"]["value"], context, task_map)
                 context.setdefault(node["output"], []).append(value)
                 self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"item": value})
 
             elif name == "_return":
-                value = self._evaluate_expression(node["inputs"]["value"], context)
+                value = self._evaluate_expression(node["inputs"]["value"], context, task_map)
                 context["_return"] = value
                 self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"output": value})
@@ -119,7 +151,7 @@ class CoreRunner:
             
             elif name == "_update":
                 op = node["inputs"]["operator"]
-                value = self._evaluate_expression(node["inputs"]["value"], context)
+                value = self._evaluate_expression(node["inputs"]["value"], context, task_map)
                 var_name = node["output"]
 
                 if var_name not in context:
@@ -133,7 +165,7 @@ class CoreRunner:
                 item_name  = node["inputs"]["item"]
                 index_var  = node["inputs"].get("index")
                 key_var    = node["inputs"].get("key")
-                base_iter  = self._evaluate_expression(node["inputs"]["iterable"], context)
+                base_iter  = self._evaluate_expression(node["inputs"]["iterable"], context, task_map)
 
                 if key_var is not None:
                     # for key, val in data.items()
@@ -167,7 +199,7 @@ class CoreRunner:
                 children = node["inputs"].get("children", [])
                 counter = 0
                 start = time.time()
-                while self._evaluate_expression(condition, context):
+                while self._evaluate_expression(condition, context, task_map):
                     publish(sub_id, ApiEventName.FOR_ITERATION_START, node, {"iteration_index": counter})
                     self._execute_nodes(sub_id, children, context, task_map, publish)
                     if context.get("_break_flag"):
@@ -184,12 +216,12 @@ class CoreRunner:
                 task_fn = task_map.get(name)
                 if not task_fn:
                     # Check if the function exists in the builtins
-                    task_fn = getattr(builtins, name, None)
+                    task_fn = getattr(safe_builtins, name, None)
                     if task_fn is None:
                         raise Exception(f"Function '{name}' not found")
                     
                 inputs = {
-                    k: self._evaluate_expression(v, context)
+                    k: self._evaluate_expression(v, context, task_map)
                     for k, v in node["inputs"].items()
                 }
                 result = task_fn(**inputs)
