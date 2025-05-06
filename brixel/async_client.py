@@ -48,6 +48,7 @@ class AsyncBrixelClient(_BaseClient):
         *,
         message: str,
         files: Optional[list] = None,
+        data: Optional[dict] = None,
         module_id: Optional[str] = None,
         context: str = "",
         agents: Optional[list] = None,
@@ -57,6 +58,7 @@ class AsyncBrixelClient(_BaseClient):
         payload = self._build_generate_plan_payload(
             message=message,
             files=files,
+            data=data,
             module_id=module_id,
             context=context,
             agents=agents,
@@ -86,8 +88,8 @@ class AsyncBrixelClient(_BaseClient):
     #  execute_plan – async
     # ------------------------------------------------------------------ #
 
-    async def execute_plan(self, plan: dict, files: list = None) -> dict:
-        return await self._run_execution_loop_async(plan, files)
+    async def execute_plan(self, plan: dict, files: list = None, data: dict = None) -> dict:
+        return await self._run_execution_loop_async(plan, files, data)
 
     async def _run_local_async(self, context: dict, sub_plan: dict) -> dict:
         return self.runner.run_local_plan(context, sub_plan, self._publish)

@@ -1,6 +1,6 @@
 [project]
 name = "brixel"
-version = "0.1.8"
+version = "0.1.9"
 description = "A Python SDK to generate and execute plans using the Brixel API"
 authors = [{ name="Justin Grivon", email="justin@brixel.ai" }]
 license = { text = "Apache-2.0" }

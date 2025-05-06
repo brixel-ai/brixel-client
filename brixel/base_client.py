@@ -152,6 +152,7 @@ class _BaseClient:
         *,
         message: str,
         files: Optional[list] = None,
+        data: Optional[dict] = None,
         module_id: Optional[str] = None,
         context: str = "",
         agents: Optional[list] = None,
@@ -181,6 +182,7 @@ class _BaseClient:
             "context":   context,
             "message":   message,
             "files":     files or [],
+            "data":      data or {},
             "agents":    agents,
         }
     
@@ -197,22 +199,22 @@ class _BaseClient:
         raise NotImplementedError
     
 
-    def _build_execution_context(self, sub_plan: dict, global_context: dict, files: list) -> dict:
-        context = {"files": files or []}
+    def _build_execution_context(self, sub_plan: dict, global_context: dict, files: list, data: dict) -> dict:
+        context = {"files": files or [], "data": data or {}}
         if sub_plan.get("inputs"):
             for sp_input in sub_plan["inputs"]:
                 context[sp_input["name"]] = global_context.get(sp_input["from"])
         return context
 
 
-    def _run_execution_loop(self, plan: dict, files: list = None) -> dict:
+    def _run_execution_loop(self, plan: dict, files: list = None, data: dict = None) -> dict:
         plan_id = plan["plan_id"]
         global_context = {}
 
         for sub_plan in plan.get("sub_plans", []):
             sub_id = sub_plan["id"]
             agent_type = sub_plan["agent"]["type"]
-            context = self._build_execution_context(sub_plan, global_context, files)
+            context = self._build_execution_context(sub_plan, global_context, files, data)
 
             self._publish(sub_id, ApiEventName.SUB_PLAN_START)
             if agent_type == "local":
@@ -225,14 +227,14 @@ class _BaseClient:
         self._publish(plan_id, ApiEventName.DONE)
         return global_context
 
-    async def _run_execution_loop_async(self, plan: dict, files: list = None) -> dict:
+    async def _run_execution_loop_async(self, plan: dict, files: list = None, data: dict = None) -> dict:
         plan_id = plan["plan_id"]
         global_context = {}
 
         for sub_plan in plan.get("sub_plans", []):
             sub_id = sub_plan["id"]
             agent_type = sub_plan["agent"]["type"]
-            context = self._build_execution_context(sub_plan, global_context, files)
+            context = self._build_execution_context(sub_plan, global_context, files, data)
 
             self._publish(sub_id, ApiEventName.SUB_PLAN_START)
             if agent_type == "local":
