@@ -1,3 +1,4 @@
+import asyncio
 import json, httpx
 from typing import Dict, Optional
 
@@ -92,7 +93,15 @@ class AsyncBrixelClient(_BaseClient):
         return await self._run_execution_loop_async(plan, files, data)
 
     async def _run_local_async(self, context: dict, sub_plan: dict) -> dict:
-        return self.runner.run_local_plan(context, sub_plan, self._publish)
+        """
+        Exécute run_local_plan dans un thread pour ne pas bloquer l'event‑loop.
+        """
+        return await asyncio.to_thread(
+            self.runner.run_local_plan,
+            context,
+            sub_plan,
+            self._publish
+        )
 
     async def _run_external_async(self, context: dict, plan_id: str, sub_plan_id: str) -> dict:
         return await self._execute_external_plan(context, plan_id, sub_plan_id)
