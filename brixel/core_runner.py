@@ -64,6 +64,24 @@ class CoreRunner:
                 "output": result
             })
 
+    @staticmethod
+    def assign_to_context(context, output_expr: str, value):
+        try:
+            expr_ast = ast.parse(output_expr, mode='eval').body
+            if isinstance(expr_ast, ast.Subscript) and isinstance(expr_ast.value, ast.Name):
+                var_name = expr_ast.value.id
+                key = eval(compile(ast.Expression(expr_ast.slice), '<string>', 'eval'), {}, context)
+                target = context[var_name]
+                target[key] = value
+                return
+            elif isinstance(expr_ast, ast.Name):
+                context[expr_ast.id] = value
+                return
+        except Exception:
+            pass
+        # Fallback
+        context[output_expr] = value
+
     def _evaluate_expression(self, expr, context, task_map):
         try:
             if expr is None:
@@ -124,7 +142,7 @@ class CoreRunner:
             name = node["name"]
             if name == "_assign":
                 value = self._evaluate_expression(node["inputs"]["value"], context, task_map)
-                context[node["output"]] = value
+                self.assign_to_context(context, node["output"], value)
                 self.add_output_to_display_outputs(node, value, context)
                 publish(sub_id, ApiEventName.NODE_FINISH, node, {"value": value})
 
